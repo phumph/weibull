@@ -296,7 +296,6 @@ all_coefs %>%
   coord_cartesian(xlim = c(-25,15), ylim = c(-25,10)) ->
   first_v_peak_plot
 
-
 all_coefs %>%
   ggplot(aes(x = estimate_onset,
              y = estimate_end,
@@ -324,6 +323,15 @@ ggpubr::ggarrange(plotlist = list(first_v_peak_plot, first_v_end_plot),
                   ncol = 1,
                   labels = c('a','b')) -> iler_deming_plot
 
+# save xy plot of onset versus peak and last flowering with stderr based on Weibull estimates
+ggsave(iler_deming_plot,
+       filename = file.path('../output/iler_deming_plot.png'),
+       device = 'png',
+       width = 5,
+       height = 8,
+       units = 'in',
+       dpi = 300)
+
 ##################################################################################
 ##                                                                              ##
 ##         ~~  CODE FOR PEARSE ET AL. (2017), FROM W. PEARSE  ~~                ##
@@ -336,15 +344,6 @@ ggpubr::ggarrange(plotlist = list(first_v_peak_plot, first_v_end_plot),
 #! script, with some additional comments (to explain) and some file
 #! load path/name changes.
 #! Comments added afterwards have "#!" at the start of them, not "#"
-
-#Headers
-require(deming)
-require(lme4)
-require(reshape)
-require(geiger)
-require(caper)
-require(plotrix)
-require(xtable)
 
 #! This became the released code in the manuscript. Original path/filename: "../code/headers.R"
 source("./2018-07-09_headers.R")
