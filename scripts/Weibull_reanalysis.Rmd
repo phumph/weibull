@@ -1,0 +1,24 @@
+---
+title: "Weibull"
+output: html_document
+author: Parris T Humphrey
+date: 2020-JAN-21
+---
+
+
+### 1. Re-analysis
+
+Below we outline the decisions we made in conducting our re-analysis. These mirror those made initially by Pearse et al. (2017).
+
+* In calculation of Weibull estimarort, we required 11 dates for each species in each year; otherwise get an NA.
+* Removed three unreasonable end estimates changed to NA's in the file below (AcMi 1976, DuHo 1976, CoLi 1996).
+* Remove 8 species (`r paste0(spp_to_remove)`) with fewer than 19 years of data from species list in CaraDonna et al. (2014).
+* $z$-score transformed the year variable so that the vector of unique years gets re-valued to improve stability of model fittig procedure.
+
+#### Model results from re-analysis
+
+Model of *onset*:
+```{r}
+anova(onset.model.all)
+```
+
