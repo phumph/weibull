@@ -2,24 +2,472 @@
 title: "Weibull"
 output: html_document
 author: Parris T Humphrey
-date: 2020-JAN-21
+date: 2020-FEB-05
 ---
 
-<in progress>
+```{r include=FALSE}
+# -------------- #
+# load libraries #
+# -------------- #
 
-### 1. Re-analysis
+#library(devtools)
+#install_github("willpearse/phest")
+library(phest)
+library(reshape2)
+library(deming)
+library(car)
+library(devtools)
+library(broom)
+library(plyr)
+library(lme4)
+library(phest)
+library(lmerTest)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
 
-Below we outline the decisions we made in conducting our re-analysis. These mirror those made initially by Pearse et al. (2017).
-
-* In calculation of Weibull estimarort, we required 11 dates for each species in each year; otherwise get an NA.
-* Removed three unreasonable end estimates changed to NA's in the file below (AcMi 1976, DuHo 1976, CoLi 1996).
-* Remove 8 species (`r paste0(spp_to_remove)`) with fewer than 19 years of data from species list in CaraDonna et al. (2014).
-* $z$-score transformed the year variable so that the vector of unique years gets re-valued to improve stability of model fittig procedure.
-
-#### Model results from re-analysis
-
-Model of *onset*:
-```{r}
-anova(onset.model.all)
+source(file.path('./weibull.R')) # Pearse et al. github.com code for repo 'phest'
+source(file.path('./iler_functions.R')) # Iler et al. custom functions 
 ```
+
+
+## Overview
+
+Below we reproduce the analysis published by Pearse et al. (2017) to serve as a point of comparison with our re-analysis to show how decisions made by the authors confounded their ability to produce an adequate comparison to the analysis of the Rocky Mountain dataset originally presented in CaraDonna et al. (2014). Specifically, below we highlight the three main technical issues in their analysis:
+
+1. Pseudo-replicated entries per species-plot-year
+2. Incorrectly re-scaled time variable
+3. Plot-level Weibull estimates instead of year-level estimates
+
+Below we correct each of these issues to produce a comparison between the Weibull estimates and observed data for onset and end flowering, showing along the way how each erroneous decision prevented a fair comparison in the original publication and its subsequent correction (Pearse et al. 2019).
+
+### Step-by-step re-analysis of the Rocky Mountain dataset
+
+#### 1. Load data
+
+First, we load the same input data as used by Pearse et al. (2017,2019) and take care of some formatting details:
+
+```{r}
+# load data
+data <- na.omit(read.csv("../data/rmbl_pnas_data.csv"))
+
+# rename some headers; make all lowercase
+names(data)[4] <- "flowers"
+names(data) <- tolower(names(data))
+
+# subset data to include only years after 1973
+data <- subset(data, year > '1973')
+```
+
+<br>
+
+#### 2. Pre-process data
+
+Here Pearse et al. (2017) make the first confounding decisions in how they pre-processed the Rocky Mountain dataset. Specifically, the authors replicating records of each date on which a species was observed in a given year by the number of flowers counted on that day. Below we reproduce this step from Pearse et al. (2017, 2019) and then show how this decision gives erroneous Weibull estimates.
+
+```{r echo=TRUE, cache=TRUE}
+# Process data in two ways:
+# first WITH flower-fold pseudoreplication of each species-year-plot-doy in data
+# second WITHOUT this step
+data_dup   <- preprocess_data(data, min_years = 19, pseudoreplicate = TRUE)
+data_dedup <- preprocess_data(data, min_years = 19, pseudoreplicate = FALSE)
+```
+
+In the code above, the data frame `data_dup` becomes replicated as many times as there are flowers counted for each species-plot-year. The resulting data frame has `r nrow(data_dup)` rows, whereas we expect only `r nrow(unique(data_dedup))` unique species-plot-year combinations of rows in the absence of this decision. The most important consequence of this is that fewer unique day-of-year values are accepted by the Weibull calculation, which will tend to generate estimates that are further from observed values because they're based on less data overall.
+
+<br>
+
+#### 3. Generate Weibull estimates
+
+Using the pseudoreplicated input data frame, Pearse et al. then calculated the Weibull estimates for onset and end flowering. Additionally, they calculate the statistic at the level of *plot*, which generates multiple estimates per plant species per year. This decision undermines the original goal of producing a single estimate for the generalized plant species' population per year.
+
+Below we calculate Weibull estimates for onset and end-of-flowering using pseudoreplicated and non-pseudoreplicatd data. We also calculate each at the level of *plot* as well as *year* in order to compare the effects of these first two choices separately as well as in tandem:
+
+```{r echo=TRUE, cache=TRUE, include=TRUE, echo=TRUE}
+# run estimates with and without plot-level aggregation using pseudo-replicated and deduplicated input data
+# use Pearse et al. (2017) default k_min
+
+# pseudoreplicated input data
+thetas_plot_dup     <- calc_weibull_pearse(data_dup, by_plot = TRUE,  k_min = 10)
+thetas_noplot_dup   <- calc_weibull_pearse(data_dup, by_plot = FALSE, k_min = 10)
+
+# non-pseudoreplicated input data
+thetas_plot_dedup   <- calc_weibull_pearse(data_dedup, by_plot = TRUE,  k_min = 10)
+thetas_noplot_dedup <- calc_weibull_pearse(data_dedup, by_plot = FALSE, k_min = 10)
+```
+
+##### 3a. Effects of pseudoreplication
+
+Let us first examine the effect of pseudoreplication. Below, we plot $\theta$ calculated from pseudoreplicated versus non-pseudoreplicated input data, where both have been calculated at the level of *plot* (*a*) or by *year* (*b*). For plot *a*, we have had to take means of the multiple plot-level weibull estimtes per species-year since the factor identifier of plot has been lost in the weibull functions of Pearse et al.
+
+```{r echo=FALSE, fig.align='center', fig.height=5, fig.width=6, message=FALSE, warning=FALSE}
+### panel (a)
+# compare actual estimates by taking means
+thetas_plot_dup %>%
+  dplyr::group_by(species, year) %>%
+  dplyr::summarise(n_theta = n(),
+                   mean_theta = mean(theta_onset, na.rm = T),
+                   sd_theta   = sd(theta_onset, na.rm = T)) ->
+  thetas_plot_dup2
+
+thetas_plot_dedup %>%
+  dplyr::group_by(species, year) %>%
+  dplyr::summarise(n_theta = n(),
+                   mean_theta = mean(theta_onset, na.rm = T),
+                   sd_theta   = sd(theta_onset, na.rm = T)) ->
+  thetas_plot_dedup2
+
+res_comp_a <-
+  dplyr::full_join(thetas_plot_dup2, thetas_plot_dedup2, by = c('species','year'))
+
+# plot:
+res_comp_a %>%
+  ggplot(aes(x = mean_theta.x, y = mean_theta.y)) +
+  geom_point(alpha = 0.33) +
+  geom_abline(slope = 1, intercept = 0) +
+  coord_cartesian(xlim = c(-100,300), ylim = c(-100,300)) +
+  theme_bw() +
+  xlab('onset, dup') + 
+  ylab('onset, dedup') ->
+  xyplot_a
+
+# plot difference
+res_comp_a %>%
+  dplyr::mutate(theta_diff = mean_theta.y - mean_theta.x) ->
+  res_comp_a
+
+# re-plot
+res_comp_a %>%
+  ggplot(aes(x = theta_diff)) +
+  geom_histogram(bins = 100, alpha = 0.66) +
+  theme_bw() +
+  scale_x_continuous(limits = c(-30, 30), breaks = seq(-30,30,10)) +
+  geom_vline(xintercept = 0) +
+  geom_vline(xintercept = mean(res_comp_a$theta_diff, na.rm = T), col = 'darkorange2', lty = 2) +
+  xlab('dedup - dup') ->
+  diff_plot_a
+
+plot_a <- ggpubr::ggarrange(plotlist = list(xyplot_a, diff_plot_a), ncol = 2, align = 'hv')
+
+### panel (b)
+res_comp_b <-
+  dplyr::full_join(thetas_noplot_dup, thetas_noplot_dedup, by = c('species','year'))
+
+res_comp_b %>%
+  ggplot(aes(x = theta_onset.x, y = theta_onset.y)) +
+  geom_point(alpha = 0.33) +
+  geom_abline(slope = 1, intercept = 0) +
+  coord_cartesian(xlim = c(-100,300), ylim = c(-100,300)) +
+  theme_bw() +
+  xlab('onset, dup') + 
+  ylab('onset, dedup') ->
+  xyplot_b
+
+# plot difference
+res_comp_b %>%
+  dplyr::mutate(theta_diff = theta_onset.y - theta_onset.x) ->
+  res_comp_b
+
+# re-plot
+res_comp_b %>%
+  ggplot(aes(x = theta_diff)) +
+  geom_histogram(bins = 100, alpha = 0.66) +
+  theme_bw() +
+  scale_x_continuous(limits = c(-30, 30), breaks = seq(-30,30,10)) +
+  geom_vline(xintercept = 0) +
+  geom_vline(xintercept = mean(res_comp_b$theta_diff, na.rm = T), col = 'darkorange2', lty = 2) +
+  xlab('dedup - dup') ->
+  diff_plot_b
+
+plot_b <- ggpubr::ggarrange(plotlist = list(xyplot_b, diff_plot_b), ncol = 2, align = 'hv')
+
+ggpubr::ggarrange(plotlist = list(plot_a, plot_b), nrow = 2, ncol = 1, align = 'hv', labels = c('a','b'))
+```
+
+In panel *a*, we can see that there is a systematic difference between estimates, with pseudo-replicated dates being on average *later* than the non-pseudoreplicated estimates. This occurs because pseudo-replicated data over-weights earlier observed dates by replicating their data values according to how many flowers were observed, making the early tail of the Weibull function *closer* to the observed values. This effect is only apparent in Weibull estimates calculated at the *plot* level. The effect of pseudoreplication is more idiosyncratic in panel *b*, where the average difference of ~2 days is spread equally before and after the estimated dates using non-pseudoreplicated data.
+
+##### 3b. Simulating the effects of pseudoreplication
+
+Below we explore the effect of pseudoreplication in a more controlled manner by creating fake data with different levels of pseudoreplication.
+
+```{r fig.height=2.5, fig.width=3, fig.align='center'}
+# testing out weibull function on fake data to illustrate how it works:
+doy1 <- c(180:210)
+doys <- list(
+  doy1,
+  doy2 = rep(doy1, each = 2)[1:30],
+  doy3 = rep(doy1, each = 3)[1:30],
+  doy4 = rep(doy1, each = 4)[1:30],
+  doy5 = rep(doy1, each = 5)[1:30],
+  doy6 = rep(doy1, each = 6)[1:30],
+  doy7 = rep(doy1, each = 7)[1:30],
+  doy8 = rep(doy1, each = 8)[1:30],
+  doy9 = rep(doy1, each = 9)[1:30],
+  doy10 = rep(doy1, each = 10)[1:30]
+)
+
+thetas <- lapply(doys,
+                 weib.limit, k=30, FALSE)
+
+theta_test <- data.frame(nrep = c(1:10),
+                         theta_est = do.call(rbind, thetas))
+
+theta_test %>%
+  ggplot(aes(x = nrep,
+             y = theta_est)) +
+  geom_point(alpha = 0.6) +
+  geom_line(alpha = 0.6) +
+  theme_bw()
+```
+
+##### 3c. Effect of plot- versus year-level estimates
+
+One of the most obvious effects of calculating Weibull estimates at the plot level is that the average of these will tend to be later than the first observed dat used to calculate the estimate. Below we plot how many estimated dates fall later than the first observed date, using pseudoreplicated and non-pseudoreplicated data calculated at the level of *plot*:
+
+```{r echo=FALSE, fig.align='center', fig.height=5, fig.width=6, message=FALSE, warning=FALSE}
+### panel a:
+# bring in min
+thetas_plot_dup %>%
+  dplyr::group_by(species, year) %>%
+  dplyr::summarise(min_obsv = min(min)) ->
+  the_mins
+
+res_comp_a %>%
+  dplyr::left_join(the_mins, by = c('species','year')) %>%
+  dplyr::mutate(diff_from_min.x = mean_theta.x - min_obsv,
+                diff_from_min.y = mean_theta.y - min_obsv) ->
+  res_comp2
+
+# now plot:
+res_comp2 %>%
+  ggplot(aes(x = diff_from_min.x)) +
+  geom_histogram(bins = 100, alpha = 0.66) +
+  theme_bw() +
+  scale_x_continuous(limits = c(-30, 30)) +
+  geom_vline(xintercept = 0) +
+  ggtitle("dup") +
+  theme(plot.title = element_text(size = 8, face = 'bold')) ->
+  diff_from_min_plot.x
+
+res_comp2 %>%
+  ggplot(aes(x = diff_from_min.y)) +
+  geom_histogram(bins = 100, alpha = 0.66) +
+  theme_bw() +
+  scale_x_continuous(limits = c(-30, 30)) +
+  geom_vline(xintercept = 0) +
+  ggtitle("dedup") + 
+  theme(plot.title = element_text(size = 8, face = 'bold')) ->
+  diff_from_min_plot.y
+
+diff_plot_a <- ggpubr::ggarrange(plotlist = list(diff_from_min_plot.x, diff_from_min_plot.y), ncol = 2, align = 'hv', labels = c('a','b'))
+
+### panel b
+thetas_noplot_dup %>%
+  dplyr::group_by(species, year) %>%
+  dplyr::summarise(min_obsv = min(min)) ->
+  the_mins
+
+res_comp_b %>%
+  dplyr::left_join(the_mins, by = c('species','year')) %>%
+  dplyr::mutate(diff_from_min.x = theta_onset.x - min_obsv,
+                diff_from_min.y = theta_onset.y - min_obsv) ->
+  res_comp2
+
+# now plot:
+res_comp2 %>%
+  ggplot(aes(x = diff_from_min.x)) +
+  geom_histogram(bins = 100, alpha = 0.66) +
+  theme_bw() +
+  scale_x_continuous(limits = c(-30, 30)) +
+  geom_vline(xintercept = 0) +
+  ggtitle("dup") + 
+  theme(plot.title = element_text(size = 8, face = 'bold')) ->
+  diff_from_min_plot.x
+
+res_comp2 %>%
+  ggplot(aes(x = diff_from_min.y)) +
+  geom_histogram(bins = 100, alpha = 0.66) +
+  theme_bw() +
+  scale_x_continuous(limits = c(-30, 30)) +
+  geom_vline(xintercept = 0) +
+  ggtitle("dedup") +
+  theme(plot.title = element_text(size = 8, face = 'bold')) ->
+  diff_from_min_plot.y
+
+diff_plot_b <- ggpubr::ggarrange(plotlist = list(diff_from_min_plot.x, diff_from_min_plot.y), ncol = 2, align = 'hv')
+
+ggpubr::ggarrange(plotlist = list(diff_plot_a, diff_plot_b), nrow = 2, ncol = 1, align = 'hv', labels = c('a','b'))
+
+```
+
+In panel *a* we see that both pseudoreplicated and non-pseudoreplicated input data produce estimated dates *later* than the earliest onset date for well over half of the species-year combinations. In contrast, using estimates calculated at the level of *year*, seen below in panel *b*, we never observe estimated dates after the observed onset dates.
+
+##### 3d. Re-scaling of year variable
+
+The next decision made by Pearse et al. (2017, 2019) was to re-scale `year` such that each integer year value becomes a $z$-score relative to the range of years in the dataset. Unfortunately, the way Pearse et al. re-scaled year, each integer year value was scaled against the distribution of entries per year among *all rows* of their data. This contrasts with what would have been the correct decision to instead transform year by re-scaling the vector of unique years comprising the range of the dataset, such that the intervals between each year is preserved across the full range of the data.
+
+```{r}
+## re-scaling year
+
+# first, done the wrong way:
+thetas_plot_dup_A   <- rescale_year(thetas_plot_dup,   uniques = FALSE, fill_missing = FALSE)
+thetas_noplot_dup_A <- rescale_year(thetas_noplot_dup, uniques = FALSE, fill_missing = FALSE)
+
+thetas_plot_dedup_A   <- rescale_year(thetas_plot_dedup,   uniques = FALSE, fill_missing = FALSE)
+thetas_noplot_dedup_A <- rescale_year(thetas_noplot_dedup, uniques = FALSE, fill_missing = FALSE)
+
+# second, done the correct way:
+thetas_plot_dup_B   <- rescale_year(thetas_plot_dup,   uniques = TRUE, fill_missing = TRUE)
+thetas_noplot_dup_B <- rescale_year(thetas_noplot_dup, uniques = TRUE, fill_missing = TRUE)
+
+thetas_plot_dedup_B   <- rescale_year(thetas_plot_dedup,   uniques = TRUE, fill_missing = TRUE)
+thetas_noplot_dedup_B <- rescale_year(thetas_noplot_dedup, uniques = TRUE, fill_missing = TRUE)
+```
+
+To illustrate the consequences of this, let's take a look at the relationship between `year_z` calculated in two ways: ($x$ by scaling the unique integers preserving the equality of interals, and $y$ the method of Pearse). Below we plot the effects of the Pearse method of re-scaling year and compare it to the correct transformation for each of the four ways of calculating the weibull (by plot with and without pseudoreplication; by year with and without pseudoreplication):
+
+```{r fig.align='center', fig.height=5, fig.width=5, echo=FALSE}
+pz1 <- plot_rescaled_year(thetas_plot_dup_A, 'dup, by plot')
+pz2 <- plot_rescaled_year(thetas_noplot_dup_A, 'dup, by year')
+pz3 <- plot_rescaled_year(thetas_plot_dedup_A, 'dedup, by plot')
+pz4 <- plot_rescaled_year(thetas_noplot_dedup_A, 'dedup, by year')
+
+ggpubr::ggarrange(plotlist = list(pz1, pz2, pz3, pz4), ncol = 2, nrow = 2,
+                  labels = c('a','b','c','d'))
+```
+
+The intervals between years is not preserved in any of the datasets that rescale year without first taking the unique values and filling in any missing entries. This will produce errors in the relationship between onset and year in the regression moels that follow and will confound our inference of the relationship between onset, peak, or end-of-flowering versus time.
+
+<br>
+
+#### 4. Compare estimates
+
+As a final filtering step, we remove plant species with fewer than 19 years' worth of data so they are not included in the regression analyses. This decision accords with the analysis made in CaraDonna et al. (2014), and we perform this filtering for the Pearse et al. estimates as well as our own:
+
+```{r echo=TRUE, include=TRUE}
+thetas_pearse <- thetas_plot_dup_A
+thetas_iler   <- thetas_noplot_dedup_B
+
+# Remove 8 species with fewer than 19 years of data from species list in CaraDonna et al. (2014)
+spp_to_remove <- c("Maianthemum stellatum",
+                     "Gentiana parryi",
+                     "Lomatium dissectum",
+                     "Dodecatheon pulchellum",
+                     "Hydrophyllum fendleri",
+                     "Descurainia richardsonii",
+                     "Pedicularis bracteosa",
+                     "Sedum rosea")
+
+thetas_pearse <- filter_species_list(thetas_pearse, spp_to_remove)
+thetas_iler   <- filter_species_list(thetas_iler, spp_to_remove)
+```
+
+Finally, we bring in the final dataset (em50) which contains data on the dates at which each flowering species reached 50% of its seasonal total abundance. This is the metric used by CaraDonna et al. (2014) to represent peak flowering.
+
+```{r message=FALSE, warning=FALSE}
+# add em50 dataframe (em50 = day on which 50% of flowers were counted)
+em50.wide <- read.csv("../data/EM50_RMBL.csv", header = T)
+em50.long <- melt(em50.wide, id.vars = 'year')
+names(em50.long)[2] <- "species"
+names(em50.long)[3] <- "em50"
+
+em50.long$species <- as.character(em50.long$species)
+em50.long$year    <- as.numeric(em50.long$year)
+em50.long$species <- gsub("\\.", " ", em50.long$species)
+
+thetas_iler %>%
+  dplyr::left_join(em50.long, by = c('species','year')) ->
+  thetas_iler
+
+thetas_pearse %>%
+  dplyr::left_join(em50.long, by = c('species','year')) ->
+  thetas_pearse
+```
+
+Now that the data is all set, we run it through a series of linear regressions to find the relationships between onset, peak, and end date of flowering.
+
+```{r}
+# run linear regressions using onset, peak, and end estimates
+lms_iler   <- run_lms(thetas_iler)
+lms_pearse <- run_lms(thetas_pearse)
+
+# run Deming regression and capture coefficient output
+deming_iler   <- run_deming(lms_iler)
+deming_pearse <- run_deming(lms_pearse)
+```
+
+```{r echo=FALSE}
+# write output
+write.table(deming_iler,
+            file = '../output/deming_reg_coefs_Iler.csv',
+            quote = F,
+            sep = ',',
+            row.names = F,
+            col.names = T)
+
+write.table(deming_pearse,
+            file = '../output/deming_reg_coefs_Pearse.csv',
+            quote = F,
+            sep = ',',
+            row.names = F,
+            col.names = T)
+```
+
+
+The results of the Deming regressions are shown below. The Pearse coefficients were generated using the pseudoreplicated data, with weibull estimates calcualted by *plot*, as well as an improperly $z$-score transformed year variable. The Iler estimates were generated without pseudoreplication, at the level of *year*, and with a correctly transformed year variable which preserves the magnitude of differences between all adjacent years in the data.
+
+##### 4a. Results tables
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+deming_iler %>%
+  dplyr::arrange(term, model) %>%
+  dplyr::bind_rows(
+    dplyr::arrange(deming_pearse, term, model)
+    ) %>%
+  dplyr::filter(term == 'slope') %>%
+  dplyr::mutate(estimate = round(estimate,3),
+                lower.0.95 = round(lower.0.95,3),
+                upper.0.95 = round(upper.0.95,3)) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c('condensed','striped'), full_width = FALSE) %>%
+  pack_rows("Iler models", 1, 3) %>%
+  pack_rows("Pearse models", 4, 6)
+```
+
+##### 4b. Results plots
+
+Lets plot the relationship between estimated onset and peak as well as onset versus end:
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# produce plots representing deming regression against one another
+iler_deming_plot <- plot_coefs(lms_iler, deming_iler, 'Iler')
+pearse_deming_plot <- plot_coefs(lms_pearse, deming_pearse, 'Pearse')
+
+# save xy plot of onset versus peak and last flowering with stderr based on Weibull estimates
+ggsave(iler_deming_plot,
+       filename = file.path('../output/iler_deming_plot.png'),
+       device = 'png',
+       width = 5,
+       height = 8,
+       units = 'in',
+       dpi = 300)
+
+ggsave(pearse_deming_plot,
+       filename = file.path('../output/pearse_deming_plot.png'),
+       device = 'png',
+       width = 5,
+       height = 8,
+       units = 'in',
+       dpi = 300)
+```
+
+```{r fig.align='center', fig.height=5.5, fig.width=5.5, echo=FALSE}
+ggpubr::ggarrange(plotlist = list(iler_deming_plot, pearse_deming_plot),
+                  labels = c('a','b'),
+                  ncol = 2,
+                  align = 'hv')
+```
+
 
