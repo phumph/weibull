@@ -1,8 +1,8 @@
 ---
-title: "Weibull"
+title: "Weibull re-analysis for GCB"
 output: html_document
 author: Parris T Humphrey
-date: 2020-FEB-05
+date: 2020-AUG-06
 ---
 
 ```{r include=FALSE}
