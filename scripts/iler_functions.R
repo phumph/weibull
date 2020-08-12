@@ -53,10 +53,12 @@ preprocess_data <- function(x, min_years = 19, pseudoreplicate = FALSE) {
 
 calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
 
-  if (by_plot == TRUE){
+  if (by_plot == TRUE) {
     factor_list <- list(dat$species, dat$year, dat$plot)
+    names(factor_list) <- c("species", "year", "plot")
   } else if (by_plot == FALSE) {
     factor_list <- list(dat$species, dat$year)
+    names(factor_list) <- c("species", "year")
   } else {
     stop("Value for by_plot needs to be T/F.", call. = FALSE)
   }
@@ -70,7 +72,7 @@ calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
                                  NA
                                }
                              }))
-
+  
   theta.end <- as.numeric(tapply(dat$doy,
                                  factor_list,
                                  function(x) {
@@ -81,31 +83,54 @@ calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
                                    }
                                  }))
 
+  # first day of flowers observed
   min <- as.numeric(
     tapply(dat$doy,
            factor_list,
            function(x) if(length(x) > k_min) min(x) else NA))
-
+  
+  # last day of flowers observed
   max <- as.numeric(
     tapply(dat$doy,
            factor_list,
            function(x) if(length(x) > k_min) max(x) else NA))
-
+  
+  # mean day of year for flowers observed
   mean <- as.numeric(
     tapply(dat$doy,
            factor_list,
            function(x) if(length(x) > k_min) mean(x, na.rm = TRUE) else NA))
 
+  # median day of year for flowers observed
   median <- as.numeric(
     tapply(dat$doy,
            factor_list,
            function(x) if(length(x) > k_min) median(x, na.rm = TRUE) else NA))
 
-  abundance <- as.numeric(
-    tapply(dat$doy,
-           factor_list,
-           function(x) if(length(x) > k_min) max(table(x)) else NA))
-
+  
+  if (!"flowers" %in% names(dat)) {
+    # obsolete and incorrect abundance function from Pearse et al.
+    abundance <- as.numeric(
+      tapply(dat$doy,
+             factor_list,
+             function(x) if(length(x) > k_min) max(table(x)) else NA))
+  } else {
+    
+    factor_list_2 <- factor_list
+    factor_list_2[["doy"]] <- dat$doy
+    
+    dat %>%
+      dplyr::select(flowers) %>%
+      aggregate(by = factor_list_2, FUN = sum) ->
+      dat2
+    
+    # maximum observed flower abundance for a single day
+    abundance <- as.numeric(
+      tapply(dat2$flowers,
+             list(dat2$species, dat2$year),
+             function(x) if(length(x) > k_min) max(x) else NA))  
+  }
+  
   species <- as.character(
     tapply(dat$species,
            factor_list, unique))
@@ -114,8 +139,7 @@ calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
     tapply(dat$year,
            factor_list, unique))
 
-  results <- na.omit(
-    data.frame(
+  results <- data.frame(
       theta_onset = theta,
       theta_end = theta.end,
       min,
@@ -124,7 +148,7 @@ calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
       species,
       year,
       median,
-      abundance))
+      abundance)
 
   return(results)
 }
@@ -247,11 +271,14 @@ coef_extract <- function(model, time_term, model_name, gsub_str = NA) {
   return(coefs)
 }
 
+
 run_lms <- function(x) {
 
   onset.model.all <- lm(theta_onset ~ species * year_z + log(abundance), data = x)
-  peak.model.all  <- lm(em50        ~ species * year_z + log(abundance), data = x)
+  #peak.model.all  <- lm(em50        ~ species * year_z + log(abundance), data = x)
+  peak.model.all  <- lm(mean        ~ species * year_z + log(abundance), data = x)
   end.model.all   <- lm(theta_end   ~ species * year_z + log(abundance), data = x)
+  
 
   # extract the coefficients
   onset_coefs <-
@@ -263,7 +290,7 @@ run_lms <- function(x) {
   peak_coefs <-
     peak.model.all %>%
     coef_extract(time_term  = 'year_z',
-                 model_name = 'em50',
+                 model_name = 'mean',
                  gsub_str   = 'species')
 
   end_coefs <-
@@ -288,9 +315,9 @@ run_lms <- function(x) {
 
 run_deming <- function(x) {
 
-  d.fvp <- deming(estimate_em50 ~ estimate_onset,
+  d.fvp <- deming(estimate_mean ~ estimate_onset,
                   xstd = std.error_onset,
-                  ystd = std.error_em50,
+                  ystd = std.error_mean,
                   data = x)
 
   # first vs. end
@@ -300,8 +327,8 @@ run_deming <- function(x) {
                   data = x)
 
   # peak vs. end
-  d.pve <- deming(estimate_end ~ estimate_em50,
-                  xstd = std.error_em50,
+  d.pve <- deming(estimate_end ~ estimate_mean,
+                  xstd = std.error_mean,
                   ystd = std.error_end,
                   data = x)
 
@@ -331,15 +358,16 @@ run_deming <- function(x) {
   return(dl1.coefs)
 }
 
+
 plot_coefs <- function(x, y, plot_title) {
 
   x %>%
     ggplot(aes(x = estimate_onset,
-               y = estimate_em50,
+               y = estimate_mean,
                xmin = estimate_onset - std.error_onset,
                xmax = estimate_onset + std.error_onset,
-               ymin = estimate_em50 - std.error_em50,
-               ymax = estimate_em50 + std.error_em50)) +
+               ymin = estimate_mean - std.error_mean,
+               ymax = estimate_mean + std.error_mean)) +
     geom_errorbar(alpha = 0.5, lwd = 0.25, col = 'dodgerblue') +
     geom_errorbarh(alpha = 0.5, lwd = 0.25, col = 'dodgerblue') +
     geom_point(col = 'dodgerblue') +

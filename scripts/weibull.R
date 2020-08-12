@@ -51,7 +51,7 @@ weib.limit <- function(x, k=NULL, upper=FALSE, alpha=0.05){
     k <- k.check(x, k)
     x <- sort(x, decreasing=upper)
     x <- x[seq_len(k)]
-    theta <- tryCatch(sum(x * weights(x,upper)), error=function(x) NA)
+    theta <- tryCatch(sum(x * weights(x, upper)), error=function(x) NA)
 
     # Calculate the CIs
     ci.one <- tryCatch(x[1] + ((x[1]-x[k]) / (Sl(x,k,alpha) -1)), error=function(x) NA)

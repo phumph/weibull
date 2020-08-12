@@ -96,6 +96,23 @@ thetas_noplot_dup   <- calc_weibull_pearse(data_dup, by_plot = FALSE, k_min = 10
 # non-pseudoreplicated input data
 thetas_plot_dedup   <- calc_weibull_pearse(data_dedup, by_plot = TRUE,  k_min = 10)
 thetas_noplot_dedup <- calc_weibull_pearse(data_dedup, by_plot = FALSE, k_min = 10)
+
+# remove rows that are all NA
+thetas_plot_dup %>%
+  dplyr::filter(!(is.na(theta_onset) & is.na(theta_end))) ->
+  thetas_plot_dup
+
+thetas_noplot_dup %>%
+  dplyr::filter(!(is.na(theta_onset) & is.na(theta_end))) ->
+  thetas_noplot_dup
+
+thetas_plot_dedup %>%
+  dplyr::filter(!(is.na(theta_onset) & is.na(theta_end))) ->
+  thetas_plot_dedup
+
+thetas_noplot_dedup %>%
+  dplyr::filter(!(is.na(theta_onset) & is.na(theta_end))) ->
+  thetas_noplot_dedup
 ```
 
 ##### 3a. Effects of pseudoreplication
@@ -232,7 +249,7 @@ One of the most obvious effects of calculating Weibull estimates at the plot lev
 # bring in min
 thetas_plot_dup %>%
   dplyr::group_by(species, year) %>%
-  dplyr::summarise(min_obsv = min(min)) ->
+  dplyr::summarise(min_obsv = min(min, na.rm = TRUE)) ->
   the_mins
 
 res_comp_a %>%
@@ -269,7 +286,7 @@ diff_plot_a <- ggpubr::ggarrange(plotlist = list(diff_from_min_plot.x,
 ### panel b
 thetas_noplot_dup %>%
   dplyr::group_by(species, year) %>%
-  dplyr::summarise(min_obsv = min(min)) ->
+  dplyr::summarise(min_obsv = min(min, na.rm = TRUE)) ->
   the_mins
 
 res_comp_b %>%
