@@ -4,54 +4,67 @@
 # function definitions #
 # -------------------- #
 
-preprocess_data <- function(x, min_years = 19, pseudoreplicate = FALSE) {
-
-  #! determine species present with sufficient numbers of years' worth of data to include
-  counts <- apply(
-    tapply(x$doy, list(x$species, x$year), function(x) length(x) > 0),
-    1,
-    function(x) sum(x, na.rm=TRUE) >= min_years)
-
-  #! filter data to species present in >= min_years
-  x <- x[x$species %in% names(counts)[counts == TRUE], ]
-
-  #! filter out all rows with 0 flowers
-  x <- x[x$flowers >= 1, ]
-
-  #! ensure integer counts of flowers
-  x$flowers <- round(x$flowers)
-
-  #! pseudo-replication step
-  #! each row is replicated as many times as there were counts of flowers
-  #! for a given observation day for a species-plot-year combination.
-  #! Note that hard-coded is that col index 4 equals 'flowers'.
-  if (pseudoreplicate == TRUE) {
-    x <- do.call(rbind,
-                 apply(x,
-                       1,
-                       function(x) sapply(x[-4],
-                                          function(y) rep(y, x[4]))
-                 )
-    )
-
-  }
-
-  #! re-order data.frame
-  x <-
-    x %>%
-    as.data.frame() %>%
-    dplyr::arrange(species, plot, year, doy)
-
-  #! ensure columns are correct data type
-  x$doy     <- as.numeric(as.character(x$doy))
-  x$year    <- as.numeric(as.character(x$year))
-  x$species <- as.character(x$species)
-
-  return(x)
+do_replicate_dates <- function(df) {
+  stopifnot("flowers" %in% names(df))
+  idx <- row.names(df)
+  rep_vec <- df$flowers
+  idx_rep <- rep(idx, rep_vec)
+  df_rep <- df[idx_rep, ]
+  stopifnot(dim(df_rep)[1] == sum(df$flowers))
+  return(df_rep)
 }
 
 
-calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
+preprocess_data <- function(dat, min_years = 19, replicate_dates = FALSE) {
+
+  stopifnot(all(c("doy", "species", "year", "plot") %in% names(dat)))
+  
+  # ensure columns are correct data type
+  dat$plot    <- as.character(dat$plot)
+  dat$species <- as.character(dat$species)
+  dat$doy     <- as.numeric(as.character(dat$doy))
+  dat$flowers <- as.numeric(dat$flowers)
+  dat$year    <- as.numeric(as.character(dat$year))
+  dat$habitat <- as.character(dat$habitat)
+  
+  # determine species present with sufficient numbers of years' worth of data to include
+  dat %>%
+    dplyr::group_by(species) %>%
+    dplyr::summarise(n_years = length(unique(year)), .groups = "drop") %>%
+    dplyr::filter(n_years >= min_years) %>%
+    dplyr::select(species) ->
+    species_to_include
+
+  # filter data to species present in >= min_years
+  # AND ensure all records have > 0 flowers
+  # AND ensure flowers is int
+  dat %>%
+    dplyr::filter(species %in% species_to_include$species,
+                  flowers > 0) %>%
+    dplyr::mutate(flowers = round(flowers)) ->
+    dat_filt
+  
+  # ensure each row is unique
+  dat_filt <- unique(dat_filt)
+  
+  # date-replication step
+  # each row is replicated as many times as there were counts of flowers
+  # for a given observation day for a species-plot-year combination.
+  # Note that hard-coded is that col index 4 equals 'flowers'.
+  if (replicate_dates == TRUE) {
+    dat_filt <- do_replicate_dates(dat_filt)
+  }
+
+  # re-order data.frame
+  dat_filt <-
+    dat_filt %>%
+    dplyr::arrange(species, plot, year, doy)
+
+  return(dat_filt)
+}
+
+
+calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10, K = NULL) {
 
   if (by_plot == TRUE) {
     factor_list <- list(dat$species, dat$year, dat$plot)
@@ -67,7 +80,7 @@ calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
                              factor_list,
                              function(x) {
                                if(length(x) > k_min) {
-                                 weib.limit(x, k = 30, upper = FALSE)
+                                 weib.limit(x, k = K, upper = FALSE)
                                } else {
                                  NA
                                }
@@ -77,7 +90,7 @@ calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10) {
                                  factor_list,
                                  function(x) {
                                    if(length(x) > k_min) {
-                                     weib.limit(x, k = 30, upper = TRUE)
+                                     weib.limit(x, k = K, upper = TRUE)
                                    } else {
                                      NA
                                    }

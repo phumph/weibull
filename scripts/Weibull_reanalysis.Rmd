@@ -2,7 +2,7 @@
 title: "Weibull re-analysis for GCB"
 output: html_document
 author: Parris T Humphrey
-date: 2020-AUG-06
+date: 2020-NOV-25
 ---
 
 ```{r include=FALSE}
@@ -29,7 +29,7 @@ library(knitr)
 library(kableExtra)
 
 source(file.path("./weibull.R")) # Pearse et al. github.com code for repo "phest"
-source(file.path("./iler_functions.R")) # Iler et al. custom functions 
+source(file.path("./iler_functions.R")) # Iler et al. custom functions
 ```
 
 
@@ -71,8 +71,8 @@ Here Pearse et al. (2017) make the first confounding decisions in how they pre-p
 # Process data in two ways:
   # first WITH flower-fold pseudoreplication of each species-year-plot-doy in data
   # second WITHOUT this step
-data_dup   <- preprocess_data(data, min_years = 19, pseudoreplicate = TRUE)
-data_dedup <- preprocess_data(data, min_years = 19, pseudoreplicate = FALSE)
+data_dup   <- preprocess_data(data, min_years = 19, replicate_dates = TRUE)
+data_dedup <- preprocess_data(data, min_years = 19, replicate_dates = FALSE)
 ```
 
 In the code above, the data frame `data_dup` becomes replicated as many times as there are flowers counted for each species-plot-year. The resulting data frame has `r nrow(data_dup)` rows, whereas we expect only `r nrow(unique(data_dedup))` unique species-plot-year combinations of rows in the absence of this decision. The most important consequence of this is that fewer unique day-of-year values are accepted by the Weibull calculation, which will tend to generate estimates that are further from observed values because they are based on less data overall.
