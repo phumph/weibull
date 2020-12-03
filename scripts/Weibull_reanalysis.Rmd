@@ -13,14 +13,12 @@ date: 2020-NOV-25
 #library(devtools)
 #install_github("willpearse/phest")
 library(phest)
-library(reshape2)
 library(deming)
 library(car)
 library(devtools)
 library(broom)
 library(plyr)
 library(lme4)
-library(phest)
 library(lmerTest)
 library(dplyr)
 library(stringr)
@@ -30,6 +28,8 @@ library(kableExtra)
 
 source(file.path("./weibull.R")) # Pearse et al. github.com code for repo "phest"
 source(file.path("./iler_functions.R")) # Iler et al. custom functions
+
+options(dplyr.summarise.inform = FALSE)
 ```
 
 
@@ -90,12 +90,12 @@ Below we calculate Weibull estimates for onset and end-of-flowering using the ps
 # use Pearse et al. (2017) default k_min
 
 # pseudoreplicated input data
-thetas_plot_dup     <- calc_weibull_pearse(data_dup, by_plot = TRUE,  k_min = 10)
-thetas_noplot_dup   <- calc_weibull_pearse(data_dup, by_plot = FALSE, k_min = 10)
+thetas_plot_dup     <- calc_weibull_pearse(data_dup, by_plot = TRUE,  k_min = 10, k_max = 50)
+thetas_noplot_dup   <- calc_weibull_pearse(data_dup, by_plot = FALSE, k_min = 10, k_max = 50)
 
 # non-pseudoreplicated input data
-thetas_plot_dedup   <- calc_weibull_pearse(data_dedup, by_plot = TRUE,  k_min = 10)
-thetas_noplot_dedup <- calc_weibull_pearse(data_dedup, by_plot = FALSE, k_min = 10)
+thetas_plot_dedup   <- calc_weibull_pearse(data_dedup, by_plot = TRUE,  k_min = 10, k_max = 50)
+thetas_noplot_dedup <- calc_weibull_pearse(data_dedup, by_plot = FALSE, k_min = 10, k_max = 50)
 
 # remove rows that are all NA
 thetas_plot_dup %>%
@@ -144,7 +144,7 @@ res_comp_a %>%
   ggplot(aes(x = mean_theta.x, y = mean_theta.y)) +
   geom_point(alpha = 0.33) +
   geom_abline(slope = 1, intercept = 0) +
-  coord_cartesian(xlim = c(-100,300), ylim = c(-100,300)) +
+  coord_cartesian(xlim = c(-100, 300), ylim = c(-100, 300)) +
   theme_bw() +
   xlab("onset, dup") + 
   ylab("onset, dedup") ->
@@ -249,7 +249,7 @@ One of the most obvious effects of calculating Weibull estimates at the plot lev
 # bring in min
 thetas_plot_dup %>%
   dplyr::group_by(species, year) %>%
-  dplyr::summarise(min_obsv = min(min, na.rm = TRUE)) ->
+  dplyr::summarise(min_obsv = min(min_doy, na.rm = TRUE)) ->
   the_mins
 
 res_comp_a %>%
@@ -286,7 +286,7 @@ diff_plot_a <- ggpubr::ggarrange(plotlist = list(diff_from_min_plot.x,
 ### panel b
 thetas_noplot_dup %>%
   dplyr::group_by(species, year) %>%
-  dplyr::summarise(min_obsv = min(min, na.rm = TRUE)) ->
+  dplyr::summarise(min_obsv = min(min_doy, na.rm = TRUE)) ->
   the_mins
 
 res_comp_b %>%
@@ -324,7 +324,7 @@ ggpubr::ggarrange(plotlist = list(diff_plot_a, diff_plot_b),
                   nrow = 2, ncol = 1, align = "hv")
 ```
 
-In panel *a* we see that both pseudoreplicated and non-pseudoreplicated input data produce estimated dates *later* than the earliest onset date for well over half of the species-year combinations. In contrast, using estimates calculated at the level of *year* (*c*, *d*), we never observe estimated dates after the observed onset dates, as intended.
+In panels *a* and *b*, we see that both pseudoreplicated and non-pseudoreplicated input data produce estimated dates *later* than the earliest onset date for well over half of the species-year combinations. In contrast, using estimates calculated at the level of *year* (*c*, *d*), we never observe estimated dates after the observed onset dates, as intended.
 
 ##### 3d. Re-scaling of year variable
 
@@ -392,7 +392,7 @@ Finally, we bring in the final dataset (em50) which contains data on the dates a
 ```{r message=FALSE, warning=FALSE}
 # add em50 dataframe (em50 = day on which 50% of flowers were counted)
 em50.wide <- read.csv("../data/EM50_RMBL.csv", header = T)
-em50.long <- melt(em50.wide, id.vars = "year")
+em50.long <- reshape2::melt(em50.wide, id.vars = "year")
 names(em50.long)[2] <- "species"
 names(em50.long)[3] <- "em50"
 

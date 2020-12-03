@@ -18,15 +18,15 @@ weib.limit <- function(x, k=NULL, upper=FALSE, alpha=0.05){
     }
     # Wrappers for parts of the calculation
     lam <- function(i, j, v){
-        std <- function(x,y) (gamma(2*v+x) * gamma(v+y)) / (gamma(v+x) * gamma(y))
-        inv <- function(x,y) (gamma(2*v+y) * gamma(v+x)) / (gamma(v+y) * gamma(x))
-        return(ifelse(j <= i, std(i,j), inv(i,j)))
+        std <- function(x,y) (gamma(2 * v + x) * gamma(v + y)) / (gamma(v + x) * gamma(y))
+        inv <- function(x,y) (gamma(2 * v + y) * gamma(v + x)) / (gamma(v + y) * gamma(x))
+        return(ifelse(j <= i, std(i, j), inv(i, j)))
     }
     weights <- function(x, upper){
         k <- length(x)
         v <- v.hat(x, upper)
         lam.mat <- outer(seq_along(x), seq_along(x), lam, v)
-        e <- matrix(rep(1,k), ncol=1)
+        e <- matrix(rep(1, k), ncol = 1)
         alpha <- as.vector(solve(t(e) %*% solve(lam.mat) %*% e)) * as.vector(solve(lam.mat) %*% e)
         return(alpha)
     }
@@ -40,22 +40,21 @@ weib.limit <- function(x, k=NULL, upper=FALSE, alpha=0.05){
             #warning("Only two unique measurement dates; unable to compute")
             return(NA)
         }
-
         k <- length(x)
-        return((1/(k-1)) * sum(log((x[1] - x[k]) / (x[1] - x[seq(2,k-1)]))))
+        return((1/(k-1)) * sum(log((x[1] - x[k]) / (x[1] - x[seq(2, k - 1)]))))
     }
-    Sl <- function(x,k,alpha) (-log(1 - alpha/2)/k)^(-v.hat(x,upper))
-    Su <- function(x,k,alpha) (-log(alpha/2)/k)^(-v.hat(x,upper))
+    Sl <- function(x, k, alpha) (-log(1 - alpha / 2) / k)^(-v.hat(x, upper))
+    Su <- function(x, k, alpha) (-log(alpha / 2) / k)^(-v.hat(x, upper))
 
     # Calculate the estimate
     k <- k.check(x, k)
     x <- sort(x, decreasing=upper)
     x <- x[seq_len(k)]
-    theta <- tryCatch(sum(x * weights(x, upper)), error=function(x) NA)
+    theta <- tryCatch(sum(x * weights(x, upper)), error = function(x) NA)
 
     # Calculate the CIs
-    ci.one <- tryCatch(x[1] + ((x[1]-x[k]) / (Sl(x,k,alpha) -1)), error=function(x) NA)
-    ci.two <- tryCatch(x[1] + ((x[1] - x[k]) / (Su(x,k,alpha)-1)), error=function(x) NA)
+    ci.one <- tryCatch(x[1] + ((x[1] - x[k]) / (Sl(x ,k, alpha) - 1)), error=function(x) NA)
+    ci.two <- tryCatch(x[1] + ((x[1] - x[k]) / (Su(x, k, alpha) - 1)), error=function(x) NA)
     ci <- range(ci.one, ci.two)
 
     # Could we estimate theta or its CI?
@@ -72,6 +71,7 @@ weib.limit <- function(x, k=NULL, upper=FALSE, alpha=0.05){
     #return(setNames(c(theta, ci), c("estimate", "lower-ci", "upper-ci")))
     return(theta) #! modified to simplify output for Iler et al. (GCB 2020)
 }
+
 
 weib.limit.bootstrap <- function(x, k=NULL, n=1000, max.iter=10, upper=FALSE){
     # Check the k-value is setup correctly
