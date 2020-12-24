@@ -1,4 +1,3 @@
-# PTH 2020-JAN-29
 
 # -------------------- #
 # function definitions #
@@ -67,7 +66,7 @@ preprocess_data <- function(dat, min_years = 19, replicate_dates = FALSE) {
 }
 
 
-calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10, k_max = 50) {
+calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10, k_max = 30) {
   
   # define focal factor levels
   if (by_plot == TRUE) {
@@ -88,26 +87,46 @@ calc_weibull_pearse <- function(dat, by_plot = FALSE, k_min = 10, k_max = 50) {
     split(factor_list, drop = TRUE, sep=";") ->
     dat_split
   
-  clusts <- parallel::makeForkCluster(parallel::detectCores())
-  doParallel::registerDoParallel(clusts)
-  
-  foreach::foreach(i = seq_along(dat_split)) %dopar% {
-    if(length(dat_split[[i]]$doy) > k_min) {
-      weib.limit(dat_split[[i]]$doy, k = k_max, upper = FALSE)
-    } else {
-      NA
-    }
-  } -> theta_onset
-  
-  foreach::foreach(i = seq_along(dat_split)) %dopar% {
-    if(length(dat_split[[i]]$doy) > k_min) {
-      weib.limit(dat_split[[i]]$doy, k = k_max, upper = TRUE)
-    } else {
-      NA
-    }
-  } -> theta_end
-  
-  parallel::stopCluster(clusts)
+  # Windows requires non-forking parallelization with function export
+  if (Sys.info()["sysname"] == "Windows") {
+    clusts <- parallel::makeCluster(4)
+    doParallel::registerDoParallel(clusts)
+    foreach::foreach(i = seq_along(dat_split),
+                     .export = c("weib.limit")) %dopar% {
+                       if(length(dat_split[[i]]$doy) > k_min) {
+                         weib.limit(dat_split[[i]]$doy, k = k_max, upper = FALSE)
+                       } else {
+                         NA
+                       }
+                     } -> theta_onset
+    foreach::foreach(i = seq_along(dat_split),
+                     .export = c("weib.limit")) %dopar% {
+                       if(length(dat_split[[i]]$doy) > k_min) {
+                         weib.limit(dat_split[[i]]$doy, k = k_max, upper = TRUE)
+                       } else {
+                         NA
+                       }
+                     } -> theta_end
+    parallel::stopCluster(clusts)
+  } else {
+    clusts <- parallel::makeForkCluster(parallel::detectCores())
+    doParallel::registerDoParallel(clusts)
+    foreach::foreach(i = seq_along(dat_split)) %dopar% {
+      if(length(dat_split[[i]]$doy) > k_min) {
+        weib.limit(dat_split[[i]]$doy, k = k_max, upper = FALSE)
+      } else {
+        NA
+      }
+    } -> theta_onset
+    foreach::foreach(i = seq_along(dat_split)) %dopar% {
+      if(length(dat_split[[i]]$doy) > k_min) {
+        weib.limit(dat_split[[i]]$doy, k = k_max, upper = TRUE)
+      } else {
+        NA
+      }
+    } -> theta_end
+    parallel::stopCluster(clusts)
+  }
   
   # combine theta results back with focal factor levels
   data.frame(factor_list_col = names(dat_split),
@@ -186,20 +205,17 @@ rescale_year <- function(x, year_col = 'year', uniques = TRUE, fill_missing = TR
 
 
 coef_extract <- function(model, time_term, model_name, gsub_str = NA) {
-  
   coefs <-
     model %>%
     broom::tidy() %>%
     dplyr::filter(grepl(paste0(':',time_term), term)) %>%
     dplyr::mutate(model = model_name,
                   term = sapply(term, function(x) gsub(paste0(':',time_term), '', x)))
-  
   if (!is.null(gsub_str)) {
     coefs$term <- sapply(coefs$term, function(x) {
       gsub(gsub_str, '', x)
     })
   }
-  
   names(coefs)[!grepl('term|model', names(coefs))] <- paste0(names(coefs)[!grepl('term|model', names(coefs))],
                                                              '_',
                                                              model_name)
@@ -208,33 +224,37 @@ coef_extract <- function(model, time_term, model_name, gsub_str = NA) {
 }
 
 
-run_lms <- function(x) {
+run_lms <- function(data, scaled_year = TRUE) {
   
-  onset.model.all <- lm(theta_onset ~ species * year_z + log(max_daily_abund), data = x)
-  #peak.model.all  <- lm(em50        ~ species * year_z + log(max_daily_abund), data = x)
-  peak.model.all  <- lm(mean_doy        ~ species * year_z + log(max_daily_abund), data = x)
-  end.model.all   <- lm(theta_end   ~ species * year_z + log(max_daily_abund), data = x)
-  
+  if (scaled_year == TRUE) {
+    onset.model.all <- lm(theta_onset ~ species * year_z + log(max_daily_abund), data = data)
+    peak.model.all  <- lm(em50        ~ species * year_z + log(max_daily_abund), data = data)
+    end.model.all   <- lm(theta_end   ~ species * year_z + log(max_daily_abund), data = data)
+    year_term = "year_z"
+  } else {
+    data$year = data$year - min(data$year, na.rm = TRUE)
+    onset.model.all <- lm(theta_onset ~ species * year + log(max_daily_abund), data = data)
+    peak.model.all  <- lm(em50        ~ species * year + log(max_daily_abund), data = data)
+    end.model.all   <- lm(theta_end   ~ species * year + log(max_daily_abund), data = data)
+    year_term = "year"
+  }
   
   # extract the coefficients
   onset_coefs <-
     onset.model.all %>%
-    coef_extract(time_term  = 'year_z',
+    coef_extract(time_term  = year_term,
                  model_name = 'onset',
                  gsub_str   = 'species')
-  
   peak_coefs <-
     peak.model.all %>%
-    coef_extract(time_term  = 'year_z',
-                 model_name = 'mean',
+    coef_extract(time_term  = year_term,
+                 model_name = 'peak',
                  gsub_str   = 'species')
-  
   end_coefs <-
     end.model.all %>%
-    coef_extract(time_term  = 'year_z',
+    coef_extract(time_term  = year_term,
                  model_name = 'end',
                  gsub_str   = 'species')
-  
   all_coefs <-
     dplyr::full_join(
       dplyr::select(onset_coefs, -model),
@@ -243,54 +263,50 @@ run_lms <- function(x) {
     dplyr::full_join(
       dplyr::select(end_coefs, -model),
       by = 'species')
-  
   return(all_coefs)
-  
 }
 
 
 run_deming <- function(x) {
-  
-  d.fvp <- deming(estimate_mean ~ estimate_onset,
-                  xstd = std.error_onset,
-                  ystd = std.error_mean,
+  # peak vs. first
+  d.pvf <- deming(estimate_onset ~ estimate_peak,
+                  ystd = std.error_onset,
+                  xstd = std.error_peak,
                   data = x)
-  
+  # first vs. peak
+  d.fvp <- deming(estimate_peak ~ estimate_onset,
+                  xstd = std.error_onset,
+                  ystd = std.error_peak,
+                  data = x)
   # first vs. end
   d.fve <- deming(estimate_end ~ estimate_onset,
                   xstd = std.error_onset,
                   ystd = std.error_end,
                   data = x)
-  
   # peak vs. end
-  d.pve <- deming(estimate_end ~ estimate_mean,
-                  xstd = std.error_mean,
+  d.pve <- deming(estimate_end ~ estimate_peak,
+                  xstd = std.error_peak,
                   ystd = std.error_end,
                   data = x)
-  
   # compile and export confidence limits on slope and intercept estimates
-  list(d.fvp,
+  list(d.pvf,
+       d.fvp,
        d.fve,
        d.pve) -> dl1
-  
-  names(dl1) <- c('first_v_peak',
-                  'first_v_end',
+  names(dl1) <- c('peak_v_first',
+                  'first_v_peak',
+                  'first_v_end' ,
                   'peak_v_end')
-  
-  dl1.coefs <- lapply(dl1, function(x) data.frame(x$coefficients,x$ci))
-  
+  dl1.coefs <- lapply(dl1, function(x) data.frame(x$coefficients, x$ci))
   for (i in seq_along(dl1.coefs)) {
     dl1.coefs[[i]]$model <- names(dl1)[i]
   }
-  
   dl1.coefs <-
     dl1.coefs %>%
     do.call(rbind, .)
-  
   names(dl1.coefs)[1] <- c('estimate')
   dl1.coefs$term <- 'slope'
   dl1.coefs$term[grep('Intercept', row.names(dl1.coefs))] <- 'intercept'
-  
   return(dl1.coefs)
 }
 
@@ -299,11 +315,11 @@ plot_coefs <- function(x, y, plot_title) {
   
   x %>%
     ggplot(aes(x = estimate_onset,
-               y = estimate_mean,
+               y = estimate_peak,
                xmin = estimate_onset - std.error_onset,
                xmax = estimate_onset + std.error_onset,
-               ymin = estimate_mean - std.error_mean,
-               ymax = estimate_mean + std.error_mean)) +
+               ymin = estimate_peak - std.error_peak,
+               ymax = estimate_peak + std.error_peak)) +
     geom_errorbar(alpha = 0.5, lwd = 0.25, col = 'dodgerblue') +
     geom_errorbarh(alpha = 0.5, lwd = 0.25, col = 'dodgerblue') +
     geom_point(col = 'dodgerblue') +
@@ -317,7 +333,7 @@ plot_coefs <- function(x, y, plot_title) {
                 alpha = 0.5,
                 col = 'dodgerblue',
                 lwd = 1) +
-    coord_cartesian(xlim = c(-30,15), ylim = c(-30,15)) +
+    #coord_cartesian(xlim = c(-30,15), ylim = c(-30,15)) +
     ggtitle(paste0(plot_title)) ->
     first_v_peak_plot
   
@@ -341,7 +357,7 @@ plot_coefs <- function(x, y, plot_title) {
                 alpha = 0.5,
                 col = 'red',
                 lwd = 1) +
-    coord_cartesian(xlim = c(-30,15), ylim = c(-30,15)) +
+    #coord_cartesian(xlim = c(-30,15), ylim = c(-30,15)) +
     ggtitle(paste0(plot_title)) ->
     first_v_end_plot
   
@@ -372,10 +388,15 @@ plot_rescaled_year <- function(x, the_title) {
     theme(plot.title = element_text(size = 8, face = 'bold'))
 }
 
-
-filter_species_list <- function(x, spp_to_remove) {
+filter_species_list <- function(x, min_years = 19) {
+  x %>%
+    dplyr::group_by(species) %>%
+    dplyr::summarise(n_years = length(unique(year))) %>%
+    dplyr::filter(n_years >= min_years) ->
+    spp_to_include
   
-  x <- x[!x$species %in% spp_to_remove, ]
-  
-  return(x)
+  return(
+    x %>%
+      dplyr::filter(species %in% spp_to_include$species)
+  )
 }
